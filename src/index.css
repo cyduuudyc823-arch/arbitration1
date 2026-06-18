@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #000;
+  background: #fff;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.demo-root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.demo-header {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 332px;
+  height: 48px;
+  min-height: 48px;
+  background: #0b0c10;
+}
+
+.demo-layout {
+  display: grid;
+  grid-template-columns: 104px minmax(540px, 1fr) 384px;
+  height: calc(100vh - 48px);
+  min-height: 0;
+  background: #000;
+}
+
+.demo-viewer,
+.demo-plugin-panel {
+  min-width: 0;
+  min-height: 0;
+}
+
+.demo-plugin-panel {
+  width: 384px;
+  background: #101116;
+}
+
+@media (min-width: 1360px) {
+  .demo-layout {
+    grid-template-columns: 112px minmax(720px, 1fr) 420px;
+  }
+
+  .demo-plugin-panel {
+    width: 420px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .demo-header {
+    grid-template-columns: 96px minmax(0, 1fr) 220px;
+  }
+
+  .demo-layout {
+    grid-template-columns: 88px minmax(420px, 1fr) 360px;
+  }
+
+  .demo-plugin-panel {
+    width: 360px;
+  }
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.mammogram-texture {
+  background:
+    radial-gradient(circle at 42% 48%, rgb(255 255 255 / 0.42), transparent 11%),
+    radial-gradient(ellipse at 55% 45%, rgb(255 255 255 / 0.25), transparent 32%),
+    radial-gradient(ellipse at 48% 51%, rgb(255 255 255 / 0.34), transparent 46%),
+    radial-gradient(ellipse at 60% 34%, rgb(0 0 0 / 0.38), transparent 24%),
+    radial-gradient(ellipse at 44% 68%, rgb(0 0 0 / 0.28), transparent 20%),
+    linear-gradient(135deg, #050505, #2a2a2a 45%, #090909);
+}
+
+.heatmap-overlay {
+  background:
+    radial-gradient(circle at 57% 39%, rgb(18 75 206 / 0.52), transparent 13%),
+    radial-gradient(circle at 52% 46%, rgb(18 75 206 / 0.22), transparent 23%);
+}
+
+.plugin-light {
+  background: #fff;
+  color: #050505;
+}
+
+.plugin-light [class*="bg-[#101116]"],
+.plugin-light [class*="bg-[#111217]"],
+.plugin-light [class*="bg-[#14151a]"],
+.plugin-light [class*="bg-[#171820]"],
+.plugin-light [class*="bg-black"],
+.plugin-light [class*="bg-white/5"] {
+  background-color: #fff !important;
+}
+
+.plugin-light [class~="bg-[#124BCE]"] {
+  background-color: #124bce !important;
+  color: #fff !important;
+}
+
+.plugin-light [class*="bg-[#124BCE]/10"],
+.plugin-light [class*="bg-[#124BCE]/12"] {
+  background-color: rgb(18 75 206 / 0.08) !important;
+  color: #124bce !important;
+}
+
+.plugin-light [class*="text-white"] {
+  color: #050505 !important;
+}
+
+.plugin-light [class*="text-[#124BCE]"] {
+  color: #124bce !important;
+}
+
+.plugin-light [class~="bg-[#124BCE]"] [class*="text-white"],
+.plugin-light button[class~="bg-[#124BCE]"],
+.plugin-light span[class~="bg-[#124BCE]"] {
+  color: #fff !important;
+}
+
+.plugin-light [class*="border-white"] {
+  border-color: rgb(0 0 0 / 0.12) !important;
+}
+
+.plugin-light [class*="border-[#124BCE]"] {
+  border-color: rgb(18 75 206 / 0.45) !important;
+}
+
+.plugin-light [class*="shadow-"] {
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.08) !important;
+}
+
+.plugin-light img {
+  background: #000;
+}
