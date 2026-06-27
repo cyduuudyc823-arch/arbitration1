@@ -1,956 +1,834 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
-  BrainCircuit,
   Check,
-  ChevronDown,
-  ChevronRight,
-  ClipboardCheck,
-  FileText,
-  Info,
+  CircleDot,
+  Eraser,
+  Grid3X3,
+  Layers,
+  Link2,
   Moon,
-  Radio,
+  Move,
+  PenLine,
+  Ruler,
+  RotateCcw,
   Search,
-  ShieldCheck,
+  Send,
+  SlidersHorizontal,
   Sun,
-  Users,
-  X,
+  ZoomIn,
 } from "lucide-react";
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
-type Decision = "recall" | "noRecall" | "review";
-type BiasAnswer = "Yes" | "No" | "Not sure";
+type MeetingState = "live" | "summary";
+type ActiveTab = "originalImages" | "readingData";
+type TimelineKey = "current" | "2023" | "2020";
+type Tool = "zoom" | "pan" | "mark" | "erase" | "window" | "magnify";
+type FinalDecision = "Recall" | "No recall";
 
-type Radiologist = {
+type Position = {
+  x: number;
+  y: number;
+};
+
+type Mark = {
+  id: number;
+  paneId: string;
+  x: number;
+  y: number;
+};
+
+type MammogramImage = {
   id: string;
-  name: string;
-  role: string;
-  expertise: string;
-  initials: string;
-  recommended: boolean;
+  paneId: string;
+  label: string;
+  src: string;
+  laterality: "L" | "R";
+  view: "CC" | "MLO";
+  objectPosition: "left center" | "right center";
 };
 
-type ParticipantDecision = {
-  decision: Decision;
-  reason: string;
+type TimelineItem = {
+  id: TimelineKey;
+  label: string;
+  year: string;
+  src: string;
+  note: string;
 };
 
-const BLUE = "#124BCE";
+const assetPath = (fileName: string) => `/assets/${fileName}`;
 
-const stepNames: Record<Step, string> = {
-  1: "Pre-meeting briefing",
-  2: "Select arbitration panel",
-  3: "Confirm meeting setup",
-  4: "Silent review",
-  5: "Participant opinions",
-  6: "Reveal AI",
-  7: "Evidence review",
-  8: "Bias check",
-  9: "Final decision",
-  10: "Meeting summary",
-};
-
-const mammograms = [
-  { id: "L-CC", src: "/assets/mammo-l-cc.png", label: "L-CC" },
-  { id: "L-MLO", src: "/assets/mammo-l-mlo.png", label: "L-MLO" },
-  { id: "R-CC", src: "/assets/mammo-r-cc.png", label: "R-CC" },
-  { id: "R-MLO", src: "/assets/mammo-r-mlo.png", label: "R-MLO" },
+const mammograms: MammogramImage[] = [
+  { id: "r-mlo", paneId: "pane-rmlo", label: "R-MLO", src: assetPath("mammogram-r-mlo.webp"), laterality: "R", view: "MLO", objectPosition: "right center" },
+  { id: "l-mlo", paneId: "pane-lmlo", label: "L-MLO", src: assetPath("mammogram-l-mlo.webp"), laterality: "L", view: "MLO", objectPosition: "left center" },
+  { id: "r-cc", paneId: "pane-rcc", label: "R-CC", src: assetPath("mammogram-r-cc.webp"), laterality: "R", view: "CC", objectPosition: "right center" },
+  { id: "l-cc", paneId: "pane-lcc", label: "L-CC", src: assetPath("mammogram-l-cc.webp"), laterality: "L", view: "CC", objectPosition: "left center" },
 ];
 
-const caseMeta = "Case BS-V000254 · Session 1 of 10 · Age 72";
-
-const caseDetails = [
-  ["Case ID", "Case 017"],
-  ["Screening context", "Routine breast screening"],
-  ["Breast density", "Dense breast"],
-  ["Prior image", "Available"],
-  ["Arbitration question", "Should this patient be recalled?"],
-  ["Disagreement trigger", "AI marked subtle asymmetry"],
+const timelineItems: TimelineItem[] = [
+  {
+    id: "current",
+    label: "Current Screening",
+    year: "2026",
+    src: assetPath("mammogram-l-cc.webp"),
+    note: "AI flagged focal asymmetry in the left upper outer quadrant.",
+  },
+  {
+    id: "2023",
+    label: "Prior 2023",
+    year: "2023",
+    src: assetPath("mammogram-l-mlo.webp"),
+    note: "No recall-level finding recorded on prior comparison.",
+  },
+  {
+    id: "2020",
+    label: "Prior 2020",
+    year: "2020",
+    src: assetPath("mammogram-r-cc.webp"),
+    note: "Previous routine screen, no suspicious interval change.",
+  },
 ];
 
-const timeline = [
-  ["Human judgement", "Reader 1: No recall", "Recorded before AI reveal"],
-  ["AI reader result", "AI: Recall suggested", "Revealed after lock"],
-  ["Reader 1 after AI", "No recall", "Further review"],
-];
-
-const radiologists: Radiologist[] = [
-  { id: "morris", name: "Dr. Helen Morris", role: "Consultant Radiologist", expertise: "Prior comparison", initials: "HM", recommended: true },
-  { id: "grant", name: "Dr. Olivia Grant", role: "Senior Arbitrator", expertise: "Arbitration lead", initials: "OG", recommended: true },
-  { id: "nair", name: "Dr. Priya Nair", role: "Dense Breast Specialist", expertise: "Dense breast", initials: "PN", recommended: true },
-  { id: "bennett", name: "Dr. Lucy Bennett", role: "AI Evaluation Lead", expertise: "AI safety", initials: "LB", recommended: true },
-  { id: "shah", name: "Dr. Amir Shah", role: "Breast Screening Reader", expertise: "Screening recall", initials: "AS", recommended: false },
-  { id: "patel", name: "Dr. James Patel", role: "Breast Imaging Specialist", expertise: "Architectural distortion", initials: "JP", recommended: false },
-  { id: "collins", name: "Dr. Maya Collins", role: "Screening Programme Reader", expertise: "Programme QA", initials: "MC", recommended: false },
-  { id: "evans", name: "Dr. Sarah Evans", role: "Consultant Radiologist", expertise: "Assessment", initials: "SE", recommended: false },
-  { id: "wright", name: "Dr. Daniel Wright", role: "Clinical Governance Lead", expertise: "Governance", initials: "DW", recommended: false },
-  { id: "carter", name: "Dr. Emily Carter", role: "Quality Assurance Reader", expertise: "Learning cases", initials: "EC", recommended: false },
-];
-
-const decisionCopy: Record<Decision, string> = {
-  recall: "Recall",
-  noRecall: "No recall",
-  review: "Need further review",
-};
-
-const defaultReasons: Record<Decision, string> = {
-  recall: "Subtle asymmetry requires assessment",
-  noRecall: "Stable compared with prior",
-  review: "Need focused comparison before finalising",
-};
-
-const biasQuestions = [
-  ["Automation bias", "Are we accepting AI mainly because confidence is high?"],
-  ["Algorithm aversion", "Are we rejecting AI mainly because it is AI?"],
-  ["Anchoring bias", "Was AI revealed after initial human review?"],
-  ["Evidence balance", "Has image evidence been reviewed before final decision?"],
-  ["Decision change", "Did anyone change their view after seeing AI?"],
-];
+const participants = ["Reader A", "Reader B", "Reader C"];
+const defaultRecallReason =
+  "Focal asymmetry was confirmed after review of current and prior images. The panel recorded the disagreement as a learning case without attributing individual fault.";
+const defaultNoRecallReason =
+  "The panel did not identify a recall-level correlate after review of the current and prior images. The disagreement is retained as a non-blame learning record.";
 
 function App() {
-  const [currentStep, setCurrentStep] = useState<Step>(1);
+  const [meetingState, setMeetingState] = useState<MeetingState>("live");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("originalImages");
+  const [activeTimeline, setActiveTimeline] = useState<TimelineKey>("current");
+  const [activeTool, setActiveTool] = useState<Tool>("mark");
+  const [activePaneId, setActivePaneId] = useState("pane-lcc");
+  const [marks, setMarks] = useState<Mark[]>([
+    { id: 1, paneId: "pane-lcc", x: 25, y: 48 },
+  ]);
+  const [recordingSeconds, setRecordingSeconds] = useState(12);
+  const [recordingPosition, setRecordingPosition] = useState<Position>(() => ({
+    x: typeof window === "undefined" ? 24 : Math.max(8, window.innerWidth - 166),
+    y: typeof window === "undefined" ? 112 : Math.max(88, window.innerHeight - 184),
+  }));
+  const [draggingRecording, setDraggingRecording] = useState(false);
+  const dragOffset = useRef<Position>({ x: 0, y: 0 });
   const [darkMode, setDarkMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState(["morris", "grant", "nair"]);
-  const [speakerIndex, setSpeakerIndex] = useState(0);
-  const [participantDecisions, setParticipantDecisions] = useState<Record<string, ParticipantDecision>>({});
-  const [decisionTarget, setDecisionTarget] = useState<Radiologist | null>(null);
-  const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
-  const [openDrawerSections, setOpenDrawerSections] = useState<Record<string, boolean>>({
-    details: true,
-    evidence: true,
-    timeline: true,
-    disagreement: true,
-  });
-  const [biasIndex, setBiasIndex] = useState(0);
-  const [biasAnswers, setBiasAnswers] = useState<Record<number, BiasAnswer>>({});
-  const [finalDecision, setFinalDecision] = useState({
-    decision: "Recall for assessment",
-    side: "Left",
-    finding: "Focal asymmetry",
-    basis: "Combined interpretation",
-    confidence: "Medium",
-    note: "",
-  });
-  const [showMammogramImages, setShowMammogramImages] = useState(true);
+  const [librarySent, setLibrarySent] = useState(false);
+  const [finalDecision, setFinalDecision] = useState<FinalDecision>("Recall");
+  const [summaryReason, setSummaryReason] = useState(defaultRecallReason);
 
-  const selectedRadiologists = useMemo(
-    () => radiologists.filter((doctor) => selectedIds.includes(doctor.id)),
-    [selectedIds],
+  const selectedTimeline = useMemo(
+    () => timelineItems.find((item) => item.id === activeTimeline) ?? timelineItems[0],
+    [activeTimeline],
   );
 
-  const activeSpeaker = selectedRadiologists[speakerIndex] ?? selectedRadiologists[0];
-  const allOpinionsCaptured = selectedRadiologists.every((doctor) => participantDecisions[doctor.id]);
-  const showAi = currentStep >= 6;
-  const isMeetingStep = currentStep >= 4 && currentStep <= 9;
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setRecordingSeconds((seconds) => seconds + 1);
+    }, 1000);
 
-  function goToStep(step: Step) {
-    setCurrentStep(step);
-    if (step === 4) {
-      setSpeakerIndex(0);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!draggingRecording) return undefined;
+
+    function handlePointerMove(event: PointerEvent) {
+      const width = 142;
+      const height = 156;
+      setRecordingPosition({
+        x: clamp(event.clientX - dragOffset.current.x, 8, window.innerWidth - width - 8),
+        y: clamp(event.clientY - dragOffset.current.y, 24, window.innerHeight - height - 8),
+      });
     }
-  }
 
-  function nextStep() {
-    if (currentStep < 10) {
-      goToStep((currentStep + 1) as Step);
+    function handlePointerUp() {
+      setDraggingRecording(false);
     }
-  }
 
-  function previousStep() {
-    if (currentStep > 1) {
-      goToStep((currentStep - 1) as Step);
-    }
-  }
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
 
-  function toggleRadiologist(id: string) {
-    setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-  }
-
-  function saveDecision(doctorId: string, decision: Decision, reason: string) {
-    const nextDecisions = {
-      ...participantDecisions,
-      [doctorId]: { decision, reason: reason || defaultReasons[decision] },
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
     };
-    setParticipantDecisions((current) => ({
+  }, [draggingRecording]);
+
+  function handleImageClick(event: React.MouseEvent<HTMLButtonElement>, paneId: string) {
+    setActivePaneId(paneId);
+
+    if (activeTool === "erase") {
+      setMarks((current) => current.filter((mark) => mark.paneId !== paneId));
+      return;
+    }
+
+    if (activeTool !== "mark") return;
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - bounds.left) / bounds.width) * 100;
+    const y = ((event.clientY - bounds.top) / bounds.height) * 100;
+
+    setMarks((current) => [
       ...current,
-      [doctorId]: { decision, reason: reason || defaultReasons[decision] },
-    }));
-    const nextMissingIndex = selectedRadiologists.findIndex((doctor) => !nextDecisions[doctor.id]);
-    if (nextMissingIndex >= 0) {
-      setSpeakerIndex(nextMissingIndex);
-    }
-    setDecisionTarget(null);
+      { id: Date.now(), paneId, x: clamp(x, 6, 94), y: clamp(y, 8, 92) },
+    ]);
   }
 
-  function nextSpeakerOrReveal() {
-    if (activeSpeaker && !participantDecisions[activeSpeaker.id]) {
-      setDecisionTarget(activeSpeaker);
-      return;
-    }
-
-    const nextMissingIndex = selectedRadiologists.findIndex((doctor, index) => index > speakerIndex && !participantDecisions[doctor.id]);
-    if (nextMissingIndex >= 0) {
-      setSpeakerIndex(nextMissingIndex);
-      return;
-    }
-
-    const anyMissingIndex = selectedRadiologists.findIndex((doctor) => !participantDecisions[doctor.id]);
-    if (anyMissingIndex >= 0) {
-      setSpeakerIndex(anyMissingIndex);
-      return;
-    }
-
-    if (allOpinionsCaptured) {
-      goToStep(6);
-    }
+  function beginRecordingDrag(event: React.PointerEvent<HTMLElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    dragOffset.current = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+    setDraggingRecording(true);
   }
 
-  function answerBias(answer: BiasAnswer) {
-    setBiasAnswers((current) => ({ ...current, [biasIndex]: answer }));
-    if (biasIndex < biasQuestions.length - 1) {
-      setBiasIndex((index) => index + 1);
-    }
+  function closeMeeting(decision: FinalDecision) {
+    setFinalDecision(decision);
+    setSummaryReason(decision === "Recall" ? defaultRecallReason : defaultNoRecallReason);
+    setMeetingState("summary");
   }
-
-  const themeClass = darkMode ? "theme-dark" : "theme-light";
 
   return (
-    <div className={`workflow-app ${themeClass}`}>
-      <div className="top-hover-zone" aria-hidden="true" />
-      <AppHeader currentStep={currentStep} darkMode={darkMode} setDarkMode={setDarkMode} />
-
-      <main className={`step-frame ${isMeetingStep ? "meeting-frame" : ""}`}>
-        <div className="step-transition" key={currentStep}>
-          {currentStep === 1 && <BriefingStep />}
-          {currentStep === 2 && <PanelStep selectedIds={selectedIds} selectedRadiologists={selectedRadiologists} toggleRadiologist={toggleRadiologist} />}
-          {currentStep === 3 && <ConfirmStep selectedRadiologists={selectedRadiologists} />}
-          {currentStep >= 4 && currentStep <= 6 && (
-            <MeetingStep
-              step={currentStep}
-              selectedRadiologists={selectedRadiologists}
-              participantDecisions={participantDecisions}
-              activeSpeaker={activeSpeaker}
-              speakerIndex={speakerIndex}
-              setDecisionTarget={setDecisionTarget}
-              showAi={showAi}
-              showMammogramImages={showMammogramImages}
-              setShowMammogramImages={setShowMammogramImages}
-              openDrawer={() => setInfoDrawerOpen(true)}
-            />
-          )}
-          {currentStep === 7 && <EvidenceStep showAi={showAi} />}
-          {currentStep === 8 && <BiasStep biasIndex={biasIndex} biasAnswers={biasAnswers} answerBias={answerBias} />}
-          {currentStep === 9 && <FinalDecisionStep finalDecision={finalDecision} setFinalDecision={setFinalDecision} />}
-          {currentStep === 10 && (
-            <SummaryStep
-              selectedRadiologists={selectedRadiologists}
-              participantDecisions={participantDecisions}
-              finalDecision={finalDecision}
-              setCurrentStep={setCurrentStep}
-            />
-          )}
-        </div>
-      </main>
-
-      <BottomBar
-        currentStep={currentStep}
-        selectedCount={selectedRadiologists.length}
-        allOpinionsCaptured={allOpinionsCaptured}
-        finalNoteReady={finalDecision.note.trim().length > 0}
-        previousStep={previousStep}
-        nextStep={nextStep}
-        setCurrentStep={setCurrentStep}
-        nextSpeakerOrReveal={nextSpeakerOrReveal}
+    <div className={`clinical-app ${darkMode ? "theme-dark" : "theme-light"}`}>
+      <RecordingWidget
+        seconds={recordingSeconds}
+        position={recordingPosition}
+        dragging={draggingRecording}
+        onPointerDown={beginRecordingDrag}
       />
 
-      {isMeetingStep && (
-        <button className="floating-info" onClick={() => setInfoDrawerOpen(true)}>
-          <Info size={18} />
-          <span>Case pack</span>
-        </button>
-      )}
+      {meetingState === "live" ? (
+        <>
+          <div className="header-hover-zone" aria-hidden="true" />
+          <ClinicalHeader darkMode={darkMode} setDarkMode={setDarkMode} />
+          <main className="meeting-shell">
+            <section className="meeting-card">
+              <div className="meeting-card-header">
+                <ReadyologyBrand compact />
+                <div className="tab-list" role="tablist" aria-label="Arbitration meeting content">
+                  <TabButton active={activeTab === "originalImages"} onClick={() => setActiveTab("originalImages")}>
+                    Original Images
+                  </TabButton>
+                  <TabButton active={activeTab === "readingData"} onClick={() => setActiveTab("readingData")}>
+                    Reading Data
+                  </TabButton>
+                </div>
+                <div className="decision-actions" aria-label="Final arbitration decision">
+                  <button className="decision-action recall" onClick={() => closeMeeting("Recall")}>
+                    Recall
+                  </button>
+                  <button className="decision-action no-recall" onClick={() => closeMeeting("No recall")}>
+                    No recall
+                  </button>
+                </div>
+              </div>
 
-      <InfoDrawer
-        open={infoDrawerOpen}
-        onClose={() => setInfoDrawerOpen(false)}
-        openSections={openDrawerSections}
-        setOpenSections={setOpenDrawerSections}
-      />
-
-      {decisionTarget && (
-        <DecisionChooser
-          doctor={decisionTarget}
-          onClose={() => setDecisionTarget(null)}
-          onSave={saveDecision}
+              {activeTab === "originalImages" ? (
+                <OriginalImagesTab
+                  activeTool={activeTool}
+                  setActiveTool={setActiveTool}
+                  activePaneId={activePaneId}
+                  setActivePaneId={setActivePaneId}
+                  marks={marks}
+                  handleImageClick={handleImageClick}
+                  activeTimeline={activeTimeline}
+                  setActiveTimeline={setActiveTimeline}
+                  selectedTimeline={selectedTimeline}
+                />
+              ) : (
+                <ReadingDataTab marks={marks} />
+              )}
+            </section>
+          </main>
+        </>
+      ) : (
+        <MeetingSummary
+          finalDecision={finalDecision}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+          librarySent={librarySent}
+          setLibrarySent={setLibrarySent}
+          summaryReason={summaryReason}
+          setSummaryReason={setSummaryReason}
+          backToMeeting={() => setMeetingState("live")}
         />
       )}
     </div>
   );
 }
 
-function AppHeader({ currentStep, darkMode, setDarkMode }: { currentStep: Step; darkMode: boolean; setDarkMode: (value: boolean) => void }) {
+function ClinicalHeader({
+  darkMode,
+  setDarkMode,
+}: {
+  darkMode: boolean;
+  setDarkMode: (value: boolean) => void;
+}) {
   return (
-    <header className="app-header">
-      <div className="header-left">
-        <span className="brand-dot">124</span>
-        <div>
-          <strong>124BCE Arbitration Meeting</strong>
-          <small>{caseMeta}</small>
-        </div>
+    <header className="clinical-header">
+      <ReadyologyBrand />
+
+      <div className="header-meta">
+        <MetaPill label="Participants" value="3 anonymised participants" />
+        <MetaPill label="Focus" value="Routine screening · Left breast · Upper outer quadrant" />
       </div>
 
-      <div className="step-status">
-        <span>Step {currentStep} of 10</span>
-        <strong>{stepNames[currentStep]}</strong>
-        <div className="progress-track">
-          <i style={{ width: `${currentStep * 10}%` }} />
-        </div>
-      </div>
-
-      <div className="header-actions">
-        <button className="mode-button" onClick={() => setDarkMode(!darkMode)}>
-          {darkMode ? <Sun size={17} /> : <Moon size={17} />}
-          {darkMode ? "Light" : "Night"}
-        </button>
-      </div>
+      <button className="mode-toggle" onClick={() => setDarkMode(!darkMode)}>
+        {darkMode ? <Sun size={17} /> : <Moon size={17} />}
+        {darkMode ? "Light" : "Night"}
+      </button>
     </header>
   );
 }
 
-function BriefingStep() {
+function ReadyologyBrand({ compact = false }: { compact?: boolean }) {
   return (
-    <section className="briefing-layout">
-      <div className="briefing-main">
-        <StepTitle eyebrow="Pre-meeting briefing" title="Review the case pack before arbitration." subtitle="The team sees the clinical question, human judgement, AI result, and historical evidence before entering the meeting." />
-        <div className="question-banner">
-          <AlertTriangle size={18} />
-          <span>Meeting question</span>
-          <strong>Should this patient be recalled?</strong>
-        </div>
-        <BriefingPack />
-      </div>
-
-      <aside className="case-preview">
-        <div className="preview-image">
-          <img src="/assets/mammo-l-cc.png" alt="Current mammogram evidence" />
-          <span>L-CC current</span>
-        </div>
-        <div className="preview-note">
-          <strong>High-confidence AI positive vs human negative</strong>
-          <p>Reader 1 recorded no recall before AI reveal. AI suggested recall with high confidence.</p>
-        </div>
-      </aside>
-    </section>
-  );
-}
-
-function BriefingPack() {
-  return (
-    <div className="briefing-pack">
-      <ClinicalModule title="Case Details">
-        <InfoGrid rows={caseDetails} />
-      </ClinicalModule>
-      <ClinicalModule title="Historical Evidence">
-        <div className="evidence-pair">
-          <EvidenceThumb title="Current" src="/assets/mammo-l-cc.png" />
-          <EvidenceThumb title="Prior" src="/assets/mammo-l-mlo.png" />
-        </div>
-        <p className="clinical-note">Prior screen available from 2023-01-18.</p>
-        <p className="clinical-note">Dense tissue limits immediate certainty; prior comparison is required before final discussion.</p>
-      </ClinicalModule>
-      <ClinicalModule title="Decision Timeline">
-        <div className="timeline-list">
-          {timeline.map(([label, left, right]) => (
-            <div className="timeline-item" key={label}>
-              <span>{label}</span>
-              <strong>{left}</strong>
-              <ChevronRight size={14} />
-              <em>{right}</em>
-            </div>
-          ))}
-        </div>
-        <div className="amber-note">Potential AI influence detected</div>
-      </ClinicalModule>
-      <ClinicalModule title="Disagreement Type Summary">
-        <div className="disagreement-summary">
-          <strong>High-confidence AI positive vs human negative</strong>
-          <p>Reader 1 recorded no recall before AI reveal. The AI reader suggested recall with high confidence, creating an arbitration trigger.</p>
-        </div>
-      </ClinicalModule>
+    <div className={`readyology-brand ${compact ? "compact" : ""}`}>
+      <img className="readyology-full-logo" src="/assets/readyology-arbitration-logo.svg" alt="Ready-ology Arbitration Meeting" />
     </div>
   );
 }
 
-function PanelStep({
-  selectedIds,
-  selectedRadiologists,
-  toggleRadiologist,
+function RecordingWidget({
+  seconds,
+  position,
+  dragging,
+  onPointerDown,
 }: {
-  selectedIds: string[];
-  selectedRadiologists: Radiologist[];
-  toggleRadiologist: (id: string) => void;
+  seconds: number;
+  position: Position;
+  dragging: boolean;
+  onPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
 }) {
-  const recommended = radiologists.filter((doctor) => doctor.recommended);
-  const available = radiologists.filter((doctor) => !doctor.recommended);
   return (
-    <section className="panel-step">
-      <StepTitle eyebrow="Select panel" title="Choose the arbitration participants." subtitle="This behaves like selecting meeting attendees, with recommended readers separated from the full available pool." />
-      <DoctorGroup title="Recommended for this case" doctors={recommended} selectedIds={selectedIds} toggleRadiologist={toggleRadiologist} featured />
-      <DoctorGroup title="Available radiologists" doctors={available} selectedIds={selectedIds} toggleRadiologist={toggleRadiologist} />
-      <div className="selected-strip">
-        <div className="avatar-stack">
-          {selectedRadiologists.map((doctor) => <Avatar key={doctor.id} doctor={doctor} />)}
-        </div>
-        <strong>{selectedRadiologists.length} radiologists selected</strong>
+    <aside
+      className={`recording-widget ${dragging ? "dragging" : ""}`}
+      aria-label="Recording status"
+      onPointerDown={onPointerDown}
+      style={{ left: position.x, top: position.y }}
+    >
+      <span className="recording-visual" aria-hidden="true">
+        <span className="recording-glow" />
+        <span className="recording-core">
+          <span className="audio-bars">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </span>
+        </span>
+      </span>
+      <div className="recording-copy">
+        <strong>Recording</strong>
+        <span>{formatTimer(seconds)}</span>
+        <small>Ambient discussion capture active</small>
       </div>
-    </section>
+    </aside>
   );
 }
 
-function DoctorGroup({
-  title,
-  doctors,
-  selectedIds,
-  toggleRadiologist,
-  featured = false,
+function OriginalImagesTab({
+  activeTool,
+  setActiveTool,
+  activePaneId,
+  setActivePaneId,
+  marks,
+  handleImageClick,
+  activeTimeline,
+  setActiveTimeline,
+  selectedTimeline,
 }: {
-  title: string;
-  doctors: Radiologist[];
-  selectedIds: string[];
-  toggleRadiologist: (id: string) => void;
-  featured?: boolean;
+  activeTool: Tool;
+  setActiveTool: (tool: Tool) => void;
+  activePaneId: string;
+  setActivePaneId: (paneId: string) => void;
+  marks: Mark[];
+  handleImageClick: (event: React.MouseEvent<HTMLButtonElement>, paneId: string) => void;
+  activeTimeline: TimelineKey;
+  setActiveTimeline: (timeline: TimelineKey) => void;
+  selectedTimeline: TimelineItem;
 }) {
   return (
-    <section className="doctor-group">
-      <h2>{title}</h2>
-      <div className={featured ? "recommended-doctors" : "available-doctors"}>
-        {doctors.map((doctor) => {
-          const selected = selectedIds.includes(doctor.id);
-          return (
-            <button className={`doctor-row ${featured ? "featured" : ""} ${selected ? "selected" : ""}`} key={doctor.id} onClick={() => toggleRadiologist(doctor.id)}>
-              <Avatar doctor={doctor} />
-              <span>
-                <strong>{doctor.name}</strong>
-                <small>{doctor.role}</small>
-              </span>
-              <em>{doctor.expertise}</em>
-              {selected && <Check size={18} />}
-            </button>
-          );
-        })}
+    <div className="original-layout reading-room">
+      <ReadingToolbar activeTool={activeTool} setActiveTool={setActiveTool} />
+      <div className="reading-main">
+        <ViewerThumbnailRail activePaneId={activePaneId} setActivePaneId={setActivePaneId} />
+        <ReadingViewer
+          marks={marks}
+          activePaneId={activePaneId}
+          setActivePaneId={setActivePaneId}
+          onImageClick={handleImageClick}
+          showAi={false}
+        />
+        <HistoryHoverPanel
+          activeTimeline={activeTimeline}
+          setActiveTimeline={setActiveTimeline}
+          selectedTimeline={selectedTimeline}
+        />
       </div>
-    </section>
+    </div>
   );
 }
 
-function ConfirmStep({ selectedRadiologists }: { selectedRadiologists: Radiologist[] }) {
-  return (
-    <section className="confirm-grid">
-      <StepTitle eyebrow="Confirm setup" title="Ready to enter structured arbitration." subtitle="AI evidence will remain hidden until after initial human review." />
-      <div className="setup-panel">
-        <SetupRow label="Case" value={caseMeta} />
-        <SetupRow label="Meeting mode" value="Structured arbitration" />
-        <SetupRow label="AI analysis" value="Hidden until reveal" />
-        <SetupRow label="Reasoning capture" value="On" />
-      </div>
-      <div className="setup-panel">
-        <h2>Selected panel members</h2>
-        <div className="confirm-members">
-          {selectedRadiologists.map((doctor) => (
-            <div key={doctor.id}>
-              <Avatar doctor={doctor} />
-              <span>{doctor.name}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function MeetingStep({
-  step,
-  selectedRadiologists,
-  participantDecisions,
-  activeSpeaker,
-  speakerIndex,
-  setDecisionTarget,
-  showAi,
-  showMammogramImages,
-  setShowMammogramImages,
-  openDrawer,
+function ReadingToolbar({
+  activeTool,
+  setActiveTool,
 }: {
-  step: Step;
-  selectedRadiologists: Radiologist[];
-  participantDecisions: Record<string, ParticipantDecision>;
-  activeSpeaker: Radiologist;
-  speakerIndex: number;
-  setDecisionTarget: (doctor: Radiologist) => void;
-  showAi: boolean;
-  showMammogramImages: boolean;
-  setShowMammogramImages: (value: boolean) => void;
-  openDrawer: () => void;
+  activeTool: Tool;
+  setActiveTool: (tool: Tool) => void;
 }) {
-  const showSpeaker = step === 5;
+  const tools: Array<{ id: Tool | "length" | "freehand" | "reset" | "grid" | "sync"; label: string; icon: React.ReactNode }> = [
+    { id: "pan", label: "Pan", icon: <Move size={18} /> },
+    { id: "zoom", label: "Zoom", icon: <ZoomIn size={18} /> },
+    { id: "magnify", label: "Magnify", icon: <Search size={18} /> },
+    { id: "window", label: "Window", icon: <SlidersHorizontal size={18} /> },
+    { id: "length", label: "Length", icon: <Ruler size={18} /> },
+    { id: "erase", label: "Erase", icon: <Eraser size={18} /> },
+    { id: "mark", label: "Mark", icon: <CircleDot size={18} /> },
+    { id: "freehand", label: "Freehand", icon: <PenLine size={18} /> },
+    { id: "reset", label: "Reset", icon: <RotateCcw size={18} /> },
+    { id: "grid", label: "Grid", icon: <Grid3X3 size={18} /> },
+    { id: "sync", label: "Sync", icon: <Link2 size={18} /> },
+  ];
+
   return (
-    <section className="meeting-room">
-      <div className="meeting-topbar">
-        <div>
-          <strong>Case BS-V000254</strong>
-          <span>Arbitration Meeting</span>
-        </div>
-        <div>
-          <span>Step {step} of 10 · {stepNames[step]}</span>
-          <span>Elapsed 10:08</span>
-        </div>
-      </div>
-
-      <div className="shared-stage">
-        <button className="inline-info" onClick={openDrawer}><Info size={16} /> Briefing</button>
-        <div className="recording-float"><i /> Reasoning capture active</div>
-        <button className="image-visibility-toggle" onClick={() => setShowMammogramImages(!showMammogramImages)}>
-          {showMammogramImages ? "Hide mammogram" : "Show mammogram"}
-        </button>
-        <MammogramGrid showAi={showAi} showImages={showMammogramImages} />
-        {showSpeaker && activeSpeaker && (
-          <div className="speaking-bubble">
-            <span><Radio size={18} /></span>
-            <div>
-              <strong>{activeSpeaker.name} is speaking</strong>
-              <small>Participant {speakerIndex + 1} of {selectedRadiologists.length}</small>
-            </div>
-          </div>
-        )}
-        {showAi && <div className="ai-reveal-note">AI analysis revealed after initial human review to reduce anchoring bias.</div>}
-      </div>
-
-      <div className="participant-strip">
-        {selectedRadiologists.map((doctor) => (
-          <ParticipantCard
-            key={doctor.id}
-            doctor={doctor}
-            decision={participantDecisions[doctor.id]}
-            speaking={showSpeaker && activeSpeaker?.id === doctor.id && !participantDecisions[doctor.id]}
-            onClick={() => setDecisionTarget(doctor)}
-          />
+    <div className="reading-toolbar" aria-label="Mammogram viewer toolbar">
+      <div className="reading-tool-group">
+        {tools.map((tool) => (
+          <button
+            className={activeTool === tool.id ? "active" : ""}
+            key={tool.id}
+            onClick={() => {
+              if (["zoom", "pan", "mark", "erase", "window", "magnify"].includes(tool.id)) {
+                setActiveTool(tool.id as Tool);
+              }
+            }}
+            title={tool.label}
+          >
+            {tool.icon}
+            <span className="tool-label">{tool.label}</span>
+          </button>
         ))}
-        <AiCard showAi={showAi} />
       </div>
-    </section>
+      <div className="reading-case-chip"><span>Case </span>BSV000254<span> · Session 1 of 10 · Age 72</span></div>
+    </div>
   );
 }
 
-function MammogramGrid({ showAi, showImages = true }: { showAi: boolean; showImages?: boolean }) {
+function ViewerThumbnailRail({
+  activePaneId,
+  setActivePaneId,
+}: {
+  activePaneId: string;
+  setActivePaneId: (paneId: string) => void;
+}) {
   return (
-    <div className="mammogram-grid">
-      {mammograms.map((image, index) => (
-        <div className="mammo-cell" key={image.id}>
-          {showImages ? (
-            <img src={image.src} alt={`${image.label} mammogram`} />
-          ) : (
-            <div className="mammogram-hidden">
-              <Search size={22} />
-              <strong>Image hidden</strong>
-            </div>
+    <aside className="viewer-series">
+      <div className="series-label">Views</div>
+      {mammograms.map((image) => (
+        <button
+          className={`viewer-thumb ${activePaneId === image.paneId ? "active" : ""}`}
+          key={image.paneId}
+          onClick={() => setActivePaneId(image.paneId)}
+        >
+          <div className="thumb-img">
+            <img src={image.src} alt={`${image.label} thumbnail`} style={{ objectPosition: image.objectPosition }} />
+          </div>
+          <span className="thumb-tag">{image.label}</span>
+          <div className="thumb-label">
+            <strong>{image.view}</strong>
+            <span>{image.laterality}</span>
+            <em>Current</em>
+          </div>
+        </button>
+      ))}
+    </aside>
+  );
+}
+
+function ReadingViewer({
+  marks,
+  activePaneId,
+  setActivePaneId,
+  onImageClick,
+  showAi,
+}: {
+  marks: Mark[];
+  activePaneId?: string;
+  setActivePaneId?: (paneId: string) => void;
+  onImageClick?: (event: React.MouseEvent<HTMLButtonElement>, paneId: string) => void;
+  showAi?: boolean;
+}) {
+  return (
+    <div className="reading-viewer">
+      {mammograms.map((image) => (
+        <button
+          className={`mamo-pane ${activePaneId === image.paneId ? "active" : ""}`}
+          id={image.paneId}
+          key={image.paneId}
+          onClick={(event) => {
+            setActivePaneId?.(image.paneId);
+            onImageClick?.(event, image.paneId);
+          }}
+          type="button"
+        >
+          <span className="pane-label">{image.label}</span>
+          <span className="pane-age">Age: 72</span>
+          <img className="mamo-img" src={image.src} alt={`${image.label} mammogram`} style={{ objectPosition: image.objectPosition }} />
+          {(image.paneId === "pane-lcc" || image.paneId === "pane-lmlo") && (
+            <span
+              className={`finding-marker ${showAi || image.paneId === "pane-lcc" ? "visible" : ""}`}
+              style={image.paneId === "pane-lcc" ? { top: "48%", left: "25%" } : { top: "45%", left: "28%" }}
+            >
+              <span className="finding-ring" />
+            </span>
           )}
-          <span>{image.label}</span>
-          {showImages && index === 0 && <div className="human-marker" />}
-          {showImages && index === 0 && showAi && <div className="ai-heatmap" />}
-        </div>
+          {marks
+            .filter((mark) => mark.paneId === image.paneId)
+            .map((mark) => (
+              <span
+                className="human-mark-ring labelled"
+                key={mark.id}
+                style={{ left: `${mark.x}%`, top: `${mark.y}%` }}
+              >
+                <span className="human-ring-label">Mark</span>
+                <span className="human-ring-circle" />
+              </span>
+            ))}
+          <span className="pane-meta"><span>Zoom 1:1</span><span>WW/WL: 4096 / 2047</span></span>
+        </button>
       ))}
     </div>
   );
 }
 
-function ParticipantCard({ doctor, decision, speaking, onClick }: { doctor: Radiologist; decision?: ParticipantDecision; speaking: boolean; onClick: () => void }) {
+function HistoryHoverPanel({
+  activeTimeline,
+  setActiveTimeline,
+  selectedTimeline,
+}: {
+  activeTimeline: TimelineKey;
+  setActiveTimeline: (timeline: TimelineKey) => void;
+  selectedTimeline: TimelineItem;
+}) {
   return (
-    <button className={`participant-card ${speaking ? "speaking" : ""} ${decision ? "made" : "waiting"}`} onClick={onClick}>
-      <Avatar doctor={doctor} speaking={speaking} />
-      <span>
-        <strong>{doctor.name}</strong>
-        {decision ? (
-          <>
-            <DecisionPill decision={decision.decision} />
-            <small>{decision.reason}</small>
-          </>
-        ) : (
-          <small>{speaking ? "Speaking now" : "Waiting for input"}</small>
-        )}
-      </span>
+    <aside className="history-hover-rail">
+      <div className="history-tab">Historical Images</div>
+      <div className="history-panel">
+        <div className="section-heading">
+          <span>Prior-image timeline</span>
+          <h2>{selectedTimeline.label}</h2>
+          <p>{selectedTimeline.note}</p>
+        </div>
+        <div className="timeline-track">
+          {timelineItems.map((item) => (
+            <button
+              className={`timeline-card ${activeTimeline === item.id ? "active" : ""}`}
+              key={item.id}
+              onClick={() => setActiveTimeline(item.id)}
+            >
+              <img src={item.src} alt={`${item.label} mammogram preview`} />
+              <span>{item.year}</span>
+              <strong>{item.label}</strong>
+              <small>{item.note}</small>
+            </button>
+          ))}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function ReadingDataTab({ marks }: { marks: Mark[] }) {
+  const readerMarks = marks.length ? marks : [{ id: 999, paneId: "pane-lcc", x: 25, y: 48 }];
+
+  return (
+    <div className="reading-data-layout">
+      <div className="comparison-stack">
+        <section className="reading-column reader-column">
+          <PanelHeader icon={<CircleDot size={18} />} eyebrow="Reader 1 annotation" title="Reader 1" />
+          <div className="annotation-frame">
+            <ReadingViewer marks={readerMarks} />
+          </div>
+          <DecisionReason
+            decision="No recall"
+            tone="human"
+            reason="No recall-level human mark at the AI finding location."
+          />
+          <DataRows rows={[["Confidence", "High"]]} />
+        </section>
+
+        <section className="reading-column ai-column">
+          <PanelHeader icon={<Layers size={18} />} eyebrow="AI annotation" title="AI reader" />
+          <div className="annotation-frame">
+            <ReadingViewer marks={[]} showAi />
+          </div>
+          <DecisionReason
+            decision="Recall suggested"
+            tone="ai"
+            reason="Subtle asymmetric density detected across L-CC and L-MLO views."
+          />
+          <DataRows
+            rows={[
+              ["Confidence", "91%"],
+              ["Finding type", "Focal asymmetry"],
+              ["Location", "Left breast · upper outer quadrant"],
+            ]}
+          />
+        </section>
+      </div>
+
+      <aside className="case-card-stack">
+        <InfoCard title="Case Detail" icon={<CircleDot size={21} />} status="Case pack" tone="case">
+          <DataRows
+            rows={[
+              ["Case ID", "BS-V000254"],
+              ["Age", "72"],
+              ["Screening round", "Round 3"],
+              ["Density", "A · Almost entirely fatty"],
+              ["Review focus", "L-CC and L-MLO · upper outer quadrant"],
+            ]}
+          />
+        </InfoCard>
+        <InfoCard title="Decision Timeline" icon={<RotateCcw size={21} />} status="Locked sequence" tone="timeline">
+          <div className="decision-timeline-list">
+            <DecisionTimelineItem
+              label="Reader 1"
+              decision="No recall / Human-negative"
+              reason="No matching recall-level human mark at the AI finding location."
+            />
+            <DecisionTimelineItem
+              label="AI reader"
+              decision="Recall suggested / AI-positive"
+              reason="Focal asymmetry detected in the left upper outer quadrant."
+            />
+            <div className="current-question">
+              <span>Current question</span>
+              <strong>Should this case be recalled for further assessment?</strong>
+            </div>
+          </div>
+        </InfoCard>
+        <InfoCard title="Disagreement Type" icon={<Layers size={21} />} status="Priority review" tone="disagreement">
+          <span className="highlight-badge">AI-positive / Human-negative</span>
+          <p>Suggested category: Detection gap / Change</p>
+        </InfoCard>
+        <InfoCard title="Similar Case Reference" icon={<Search size={21} />} status="Learning match" tone="reference">
+          <DataRows
+            rows={[
+              ["Reference", "REF-014"],
+              ["Prior outcome", "Recalled after review"],
+              ["Learning note", "Similar disagreement patterns may benefit from second-look review"],
+            ]}
+          />
+        </InfoCard>
+      </aside>
+    </div>
+  );
+}
+
+function MeetingSummary({
+  finalDecision,
+  darkMode,
+  setDarkMode,
+  librarySent,
+  setLibrarySent,
+  summaryReason,
+  setSummaryReason,
+  backToMeeting,
+}: {
+  finalDecision: FinalDecision;
+  darkMode: boolean;
+  setDarkMode: (value: boolean) => void;
+  librarySent: boolean;
+  setLibrarySent: (value: boolean) => void;
+  summaryReason: string;
+  setSummaryReason: (value: string) => void;
+  backToMeeting: () => void;
+}) {
+  const keyReason = summaryReason.trim() || (finalDecision === "Recall" ? defaultRecallReason : defaultNoRecallReason);
+
+  return (
+    <>
+      <div className="header-hover-zone" aria-hidden="true" />
+      <header className="clinical-header summary-header">
+        <div className="case-identity">
+          <span className="brand-mark complete"><Check size={22} /></span>
+          <div>
+            <div className="header-title-row">
+              <h1>Meeting complete</h1>
+              <span className="status-chip complete">Reasoning receipt</span>
+            </div>
+            <p>Case BS-V000254 · Arbitration record ready</p>
+          </div>
+        </div>
+        <button className="mode-toggle" onClick={() => setDarkMode(!darkMode)}>
+          {darkMode ? <Sun size={17} /> : <Moon size={17} />}
+          {darkMode ? "Light" : "Night"}
+        </button>
+      </header>
+
+      <main className="summary-shell">
+        <section className="summary-receipt">
+          <p className="receipt-kicker">Clinical reasoning receipt</p>
+          <h2>{finalDecision === "Recall" ? "Recall to assessment" : "No recall"}</h2>
+          <p className="receipt-lede">{keyReason}</p>
+
+          <label className="reason-editor">
+            <span>Editable clinical reason</span>
+            <textarea
+              value={summaryReason}
+              onChange={(event) => setSummaryReason(event.target.value)}
+              aria-label="Editable clinical reason"
+            />
+          </label>
+
+          <div className="receipt-grid">
+            <ReceiptItem label="Case" value="BS-V000254" />
+            <ReceiptItem label="Disagreement type" value="AI-positive / Human-negative" />
+            <ReceiptItem
+              label="Key reason"
+              value={keyReason}
+            />
+            <ReceiptItem label="Discussion captured" value="Yes · ambient discussion record attached" />
+            <ReceiptItem label="Participants" value={participants.join(", ")} />
+            <ReceiptItem label="Learning record status" value="Ready for case library after follow-up outcome is confirmed" />
+          </div>
+
+          <section className="learning-record">
+            <h3>Arbitration record</h3>
+            <p>
+              Reader 1 recorded no recall before AI reveal. The AI output suggested recall with high confidence. The panel reviewed the image evidence and recorded the final arbitration decision: {keyReason}
+            </p>
+          </section>
+
+          <section className="learning-record">
+            <h3>Summary</h3>
+            <p>
+              This case is useful for shared learning because the disagreement pattern may recur where subtle asymmetry is visible across L-CC and L-MLO views but not initially marked by a human reader.
+            </p>
+          </section>
+
+          <div className="summary-actions">
+            <button onClick={backToMeeting}>Back to live meeting</button>
+            <button className="primary" onClick={() => setLibrarySent(true)}>
+              {librarySent ? <Check size={17} /> : <Send size={17} />}
+              {librarySent ? "Sent locally" : "Send to learning library"}
+            </button>
+          </div>
+        </section>
+      </main>
+    </>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button className={active ? "active" : ""} onClick={onClick} role="tab" aria-selected={active}>
+      {children}
     </button>
   );
 }
 
-function AiCard({ showAi }: { showAi: boolean }) {
+function MetaPill({ label, value }: { label: string; value: string }) {
   return (
-    <article className={`participant-card ai ${showAi ? "made" : "waiting"}`}>
-      <span className="ai-avatar"><BrainCircuit size={18} /></span>
-      <span>
-        <strong>AI system</strong>
-        {showAi ? (
-          <>
-            <DecisionPill decision="recall" />
-            <small>87% · Possible architectural distortion</small>
-          </>
-        ) : (
-          <small>Hidden until reveal AI</small>
-        )}
-      </span>
+    <div className="meta-pill">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function PanelHeader({ icon, eyebrow, title }: { icon: React.ReactNode; eyebrow: string; title: string }) {
+  return (
+    <div className="panel-header">
+      <span>{icon}</span>
+      <div>
+        <small>{eyebrow}</small>
+        <h2>{title}</h2>
+      </div>
+    </div>
+  );
+}
+
+function DecisionReason({
+  decision,
+  reason,
+  tone,
+}: {
+  decision: string;
+  reason: string;
+  tone: "human" | "ai";
+}) {
+  return (
+    <div className="decision-reason">
+      <div className={`decision-band ${tone}`}>
+        <span>Decision</span>
+        <strong>{decision}</strong>
+      </div>
+      <div className="reason-block">
+        <span>Reason</span>
+        <p>{reason}</p>
+      </div>
+    </div>
+  );
+}
+
+function DecisionTimelineItem({
+  label,
+  decision,
+  reason,
+}: {
+  label: string;
+  decision: string;
+  reason: string;
+}) {
+  return (
+    <article className="decision-timeline-item">
+      <span>{label}</span>
+      <strong>{decision}</strong>
+      <p>{reason}</p>
     </article>
   );
 }
 
-function EvidenceStep({ showAi }: { showAi: boolean }) {
-  return (
-    <section className="evidence-step">
-      <StepTitle eyebrow="Evidence review" title="Review the concern before bias check." subtitle="Evidence is ordered from primary concern to supporting human, AI, and context details." />
-      <div className="evidence-workspace">
-        <div className="primary-concern">
-          <p>Primary concern</p>
-          <h2>Possible focal asymmetry</h2>
-          <span>Dense breast tissue · prior comparison required</span>
-        </div>
-        <ClinicalModule title="Human evidence">
-          <p className="clinical-note">Reader 1 recorded no recall before AI reveal. Reader 1 after AI: no recall to further review.</p>
-          <EvidenceThumb title="Current mammogram evidence" src="/assets/mammo-l-cc.png" />
-        </ClinicalModule>
-        <ClinicalModule title="AI evidence">
-          <p className="clinical-note">{showAi ? "AI reader result: Recall suggested. High confidence. Finding type: focal asymmetry." : "AI analysis remains hidden until reveal."}</p>
-          <div className="mini-ai-view"><MammogramGrid showAi={showAi} /></div>
-        </ClinicalModule>
-        <ClinicalModule title="Context evidence">
-          <p className="clinical-note">Prior screen available from 2023-01-18. Dense tissue limits immediate certainty; prior comparison is required before final discussion.</p>
-        </ClinicalModule>
-      </div>
-    </section>
-  );
-}
-
-function BiasStep({ biasIndex, biasAnswers, answerBias }: { biasIndex: number; biasAnswers: Record<number, BiasAnswer>; answerBias: (answer: BiasAnswer) => void }) {
-  const complete = Object.keys(biasAnswers).length === biasQuestions.length;
-  const [title, question] = biasQuestions[biasIndex];
-  return (
-    <section className="bias-step">
-      <StepTitle eyebrow="Bias check" title="Check the discussion before final decision." subtitle="One bias question is shown at a time to avoid a flat checklist." />
-      <div className="bias-card">
-        {complete ? (
-          <>
-            <ShieldCheck size={38} />
-            <h2>Bias check completed.</h2>
-            <p>Automation bias, algorithm aversion, anchoring bias, evidence balance, and decision change have been reviewed.</p>
-          </>
-        ) : (
-          <>
-            <span>Question {biasIndex + 1} of {biasQuestions.length}</span>
-            <h2>{title}</h2>
-            <p>{question}</p>
-            <div className="bias-buttons">
-              {(["Yes", "No", "Not sure"] as BiasAnswer[]).map((answer) => (
-                <button key={answer} onClick={() => answerBias(answer)}>{answer}</button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function FinalDecisionStep({
-  finalDecision,
-  setFinalDecision,
+function InfoCard({
+  title,
+  icon,
+  status,
+  tone,
+  children,
 }: {
-  finalDecision: { decision: string; side: string; finding: string; basis: string; confidence: string; note: string };
-  setFinalDecision: React.Dispatch<React.SetStateAction<{ decision: string; side: string; finding: string; basis: string; confidence: string; note: string }>>;
-}) {
-  function update(key: keyof typeof finalDecision, value: string) {
-    setFinalDecision((current) => ({ ...current, [key]: value }));
-  }
-
-  return (
-    <section className="final-step">
-      <StepTitle eyebrow="Final decision" title="Record the clinical decision and reasoning." subtitle="The meeting cannot end until a reasoning note is completed." />
-      <div className="final-grid">
-        <div className="decision-options">
-          {["Recall for assessment", "Return to routine screening", "Need further review"].map((option) => (
-            <button className={finalDecision.decision === option ? "active" : ""} key={option} onClick={() => update("decision", option)}>
-              {option}
-            </button>
-          ))}
-        </div>
-        <div className="decision-fields">
-          <TextField label="Side" value={finalDecision.side} onChange={(value) => update("side", value)} />
-          <TextField label="Finding type" value={finalDecision.finding} onChange={(value) => update("finding", value)} />
-          <TextField label="Decision basis" value={finalDecision.basis} onChange={(value) => update("basis", value)} />
-          <TextField label="Confidence" value={finalDecision.confidence} onChange={(value) => update("confidence", value)} />
-          <label className="note-field">
-            <span>Reasoning note required</span>
-            <textarea value={finalDecision.note} onChange={(event) => update("note", event.target.value)} placeholder="Record why this decision was made..." />
-          </label>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function SummaryStep({
-  selectedRadiologists,
-  participantDecisions,
-  finalDecision,
-  setCurrentStep,
-}: {
-  selectedRadiologists: Radiologist[];
-  participantDecisions: Record<string, ParticipantDecision>;
-  finalDecision: { decision: string; basis: string; confidence: string; note: string };
-  setCurrentStep: (step: Step) => void;
+  title: string;
+  icon: React.ReactNode;
+  status: string;
+  tone: "case" | "timeline" | "disagreement" | "reference";
+  children: React.ReactNode;
 }) {
   return (
-    <section className="summary-step">
-      <div className="summary-document">
-        <p className="kicker">{caseMeta}</p>
-        <h1>{finalDecision.decision}</h1>
-        <p className="summary-lede">{finalDecision.note || "Panel agreed that the subtle left-sided finding requires assessment."}</p>
-
-        <SummarySection title="Why this decision was made">
-          <p>Decision basis: {finalDecision.basis}. Confidence: {finalDecision.confidence}. The panel reviewed human reasoning, AI recommendation, historical evidence, and bias prompts.</p>
-        </SummarySection>
-        <SummarySection title="Participant opinions">
-          <div className="summary-list">
-            {selectedRadiologists.map((doctor) => {
-              const decision = participantDecisions[doctor.id];
-              return (
-                <div key={doctor.id}>
-                  <strong>{doctor.name}</strong>
-                  <span>{decision ? decisionCopy[decision.decision] : "No final opinion recorded"}</span>
-                  <em>{decision?.reason ?? "Pending"}</em>
-                </div>
-              );
-            })}
-          </div>
-        </SummarySection>
-        <SummarySection title="AI recommendation">
-          <p>AI system: Recall · high confidence · focal asymmetry. AI was revealed after initial human review to reduce anchoring bias.</p>
-        </SummarySection>
-        <SummarySection title="Evidence reviewed">
-          <p>Current and prior mammogram evidence, prior screen from 2023-01-18, dense breast limitation, decision timeline, and disagreement type summary.</p>
-        </SummarySection>
-        <SummarySection title="Bias reflection">
-          <p>Automation bias, algorithm aversion, anchoring bias, evidence balance, and decision change were reviewed before finalisation.</p>
-        </SummarySection>
-        <SummarySection title="Follow-up actions and learning tags">
-          <div className="tag-row">
-            {["AI-human disagreement", "Dense breast", "Prior comparison", "Reasoning receipt"].map((tag) => <span key={tag}>{tag}</span>)}
-          </div>
-        </SummarySection>
-      </div>
-      <div className="summary-actions">
-        <button onClick={() => setCurrentStep(1)}>Back to queue</button>
-        <button className="primary">Send to learning library</button>
-      </div>
-    </section>
-  );
-}
-
-function BottomBar({
-  currentStep,
-  selectedCount,
-  allOpinionsCaptured,
-  finalNoteReady,
-  previousStep,
-  nextStep,
-  setCurrentStep,
-  nextSpeakerOrReveal,
-}: {
-  currentStep: Step;
-  selectedCount: number;
-  allOpinionsCaptured: boolean;
-  finalNoteReady: boolean;
-  previousStep: () => void;
-  nextStep: () => void;
-  setCurrentStep: (step: Step) => void;
-  nextSpeakerOrReveal: () => void;
-}) {
-  if (currentStep === 10) return null;
-
-  let primaryLabel = "Next";
-  let primaryAction = nextStep;
-  let disabled = false;
-
-  if (currentStep === 1) primaryLabel = "Next: Select panel";
-  if (currentStep === 2) {
-    primaryLabel = "Next: Confirm meeting";
-    disabled = selectedCount === 0;
-  }
-  if (currentStep === 3) primaryLabel = "Enter meeting";
-  if (currentStep === 4) primaryLabel = "Invite first opinion";
-  if (currentStep === 5) {
-    primaryLabel = allOpinionsCaptured ? "Reveal AI" : "Next speaker";
-    primaryAction = nextSpeakerOrReveal;
-  }
-  if (currentStep === 6) primaryLabel = "Review evidence";
-  if (currentStep === 7) primaryLabel = "Bias check";
-  if (currentStep === 8) primaryLabel = "Final decision";
-  if (currentStep === 9) {
-    primaryLabel = "End meeting";
-    disabled = !finalNoteReady;
-    primaryAction = () => setCurrentStep(10);
-  }
-
-  return (
-    <footer className="bottom-bar">
-      <button className="back-button" onClick={previousStep} disabled={currentStep === 1}>
-        <ArrowLeft size={17} />
-        Back
-      </button>
-      <div>
-        <span>Step {currentStep} of 10</span>
-        <strong>{stepNames[currentStep]}</strong>
-      </div>
-      <button className="primary-button" onClick={primaryAction} disabled={disabled}>
-        {primaryLabel}
-        <ArrowRight size={17} />
-      </button>
-    </footer>
-  );
-}
-
-function InfoDrawer({
-  open,
-  onClose,
-  openSections,
-  setOpenSections,
-}: {
-  open: boolean;
-  onClose: () => void;
-  openSections: Record<string, boolean>;
-  setOpenSections: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-}) {
-  return (
-    <div className={`drawer-layer ${open ? "open" : ""}`} aria-hidden={!open}>
-      <aside className="info-drawer">
-        <div className="drawer-header">
-          <div>
-            <strong>Meeting reference pack</strong>
-            <small>{caseMeta}</small>
-          </div>
-          <button onClick={onClose}><X size={18} /></button>
+    <section className={`info-card ${tone}`}>
+      <div className="info-card-header">
+        <span className="info-icon">{icon}</span>
+        <div>
+          <small>{status}</small>
+          <h3>{title}</h3>
         </div>
-        <DrawerSection id="details" title="Case Details" openSections={openSections} setOpenSections={setOpenSections}>
-          <InfoGrid rows={caseDetails} />
-        </DrawerSection>
-        <DrawerSection id="evidence" title="Historical Evidence" openSections={openSections} setOpenSections={setOpenSections}>
-          <div className="evidence-pair compact">
-            <EvidenceThumb title="Current" src="/assets/mammo-l-cc.png" />
-            <EvidenceThumb title="Prior" src="/assets/mammo-l-mlo.png" />
-          </div>
-          <p className="clinical-note">Prior screen available from 2023-01-18.</p>
-          <p className="clinical-note">Dense tissue limits immediate certainty; prior comparison is required before final discussion.</p>
-        </DrawerSection>
-        <DrawerSection id="timeline" title="Decision Timeline" openSections={openSections} setOpenSections={setOpenSections}>
-          <div className="timeline-list drawer">
-            {timeline.map(([label, left, right]) => (
-              <div className="timeline-item" key={label}>
-                <span>{label}</span>
-                <strong>{left}</strong>
-                <em>{right}</em>
-              </div>
-            ))}
-          </div>
-        </DrawerSection>
-        <DrawerSection id="disagreement" title="Disagreement Type Summary" openSections={openSections} setOpenSections={setOpenSections}>
-          <div className="disagreement-summary">
-            <strong>High-confidence AI positive vs human negative</strong>
-            <p>Reader 1 recorded no recall before AI reveal. The AI reader suggested recall with high confidence, creating an arbitration trigger.</p>
-          </div>
-        </DrawerSection>
-      </aside>
-      <button className="drawer-scrim" onClick={onClose} aria-label="Close case pack" />
-    </div>
-  );
-}
-
-function DecisionChooser({ doctor, onClose, onSave }: { doctor: Radiologist; onClose: () => void; onSave: (id: string, decision: Decision, reason: string) => void }) {
-  const [decision, setDecision] = useState<Decision>("recall");
-  const [reason, setReason] = useState(defaultReasons.recall);
-
-  function choose(nextDecision: Decision) {
-    setDecision(nextDecision);
-    setReason(defaultReasons[nextDecision]);
-  }
-
-  return (
-    <div className="modal-layer">
-      <section className="decision-modal">
-        <button className="modal-close" onClick={onClose}><X size={18} /></button>
-        <Avatar doctor={doctor} speaking />
-        <h2>{doctor.name}</h2>
-        <p>Record this participant's arbitration opinion.</p>
-        <div className="modal-options">
-          {(["recall", "noRecall", "review"] as Decision[]).map((item) => (
-            <button key={item} className={decision === item ? "active" : ""} onClick={() => choose(item)}>
-              {decisionCopy[item]}
-            </button>
-          ))}
-        </div>
-        <label className="note-field">
-          <span>Short reasoning</span>
-          <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
-        </label>
-        <button className="primary-button wide" onClick={() => onSave(doctor.id, decision, reason)}>Save opinion</button>
-      </section>
-    </div>
-  );
-}
-
-function StepTitle({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle: string }) {
-  return (
-    <div className="step-title">
-      <p>{eyebrow}</p>
-      <h1>{title}</h1>
-      <span>{subtitle}</span>
-    </div>
-  );
-}
-
-function ClinicalModule({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="clinical-module">
-      <h2>{title}</h2>
+      </div>
       {children}
     </section>
   );
 }
 
-function DrawerSection({
-  id,
-  title,
-  children,
-  openSections,
-  setOpenSections,
-}: {
-  id: string;
-  title: string;
-  children: React.ReactNode;
-  openSections: Record<string, boolean>;
-  setOpenSections: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-}) {
-  const open = openSections[id];
+function DataRows({ rows }: { rows: Array<[string, string]> }) {
   return (
-    <section className="drawer-section">
-      <button onClick={() => setOpenSections((current) => ({ ...current, [id]: !open }))}>
-        <strong>{title}</strong>
-        <ChevronDown size={16} className={open ? "open" : ""} />
-      </button>
-      {open && <div>{children}</div>}
-    </section>
-  );
-}
-
-function InfoGrid({ rows }: { rows: string[][] }) {
-  return (
-    <div className="info-grid">
+    <div className="data-rows">
       {rows.map(([label, value]) => (
         <div key={label}>
           <span>{label}</span>
@@ -961,48 +839,23 @@ function InfoGrid({ rows }: { rows: string[][] }) {
   );
 }
 
-function EvidenceThumb({ title, src }: { title: string; src: string }) {
+function ReceiptItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="evidence-thumb">
-      <img src={src} alt={`${title} mammogram evidence`} />
-      <span>{title}</span>
-    </div>
-  );
-}
-
-function SetupRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="setup-row">
+    <div className="receipt-item">
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
   );
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="text-field">
-      <span>{label}</span>
-      <input value={value} onChange={(event) => onChange(event.target.value)} />
-    </label>
-  );
+function formatTimer(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
 }
 
-function SummarySection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="summary-section">
-      <h2>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Avatar({ doctor, speaking = false }: { doctor: Radiologist; speaking?: boolean }) {
-  return <span className={`avatar ${speaking ? "speaking" : ""}`}>{doctor.initials}</span>;
-}
-
-function DecisionPill({ decision }: { decision: Decision }) {
-  return <em className={`decision-pill ${decision}`}>{decisionCopy[decision]}</em>;
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 export default App;
