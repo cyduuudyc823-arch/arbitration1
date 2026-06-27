@@ -54,7 +54,7 @@ type TimelineItem = {
   note: string;
 };
 
-const assetPath = (fileName: string) => `/assets/${fileName}`;
+const assetPath = (fileName: string) => `./assets/${fileName}`;
 
 const mammograms: MammogramImage[] = [
   { id: "r-mlo", paneId: "pane-rmlo", label: "R-MLO", src: assetPath("mammogram-r-mlo.webp"), laterality: "R", view: "MLO", objectPosition: "right center" },
@@ -283,7 +283,7 @@ function ClinicalHeader({
 function ReadyologyBrand({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`readyology-brand ${compact ? "compact" : ""}`}>
-      <img className="readyology-full-logo" src="/assets/readyology-arbitration-logo.svg" alt="Ready-ology Arbitration Meeting" />
+      <img className="readyology-full-logo" src={assetPath("readyology-arbitration-logo.svg")} alt="Ready-ology Arbitration Meeting" />
     </div>
   );
 }
